@@ -1,0 +1,26 @@
+[package]
+name = "zsxq-cli"
+version = "0.1.0"
+edition = "2021"
+description = "知识星球 web 端逆向 CLI（全星球可读，含未开 Skill 星球；长文章全文）"
+
+[[bin]]
+name = "zsxq"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls", "charset"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha1 = "0.10"
+uuid = { version = "1", features = ["v4"] }
+regex = "1"
+scraper = "0.23"
+ego-tree = "0.10"
+percent-encoding = "2"
+dirs = "6"
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
