@@ -1,6 +1,6 @@
 [package]
 name = "zsxq-cli"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 description = "知识星球 web 端逆向 CLI（全星球可读，含未开 Skill 星球；长文章全文）"
 

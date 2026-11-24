@@ -8,18 +8,20 @@
 
 ## 安装
 
-[Releases](https://github.com/LunFengChen/zsxq-cli/releases) 直接下裸二进制
-（`zsxq-cli-linux-x86_64` / `zsxq-cli-macos-arm64` / `zsxq-cli-windows-x86_64.exe`）：
+一键装（二进制到 `~/.local/bin` + 自动配置 fish/bash/zsh 补全）：
 
 ```bash
-chmod +x zsxq-cli-linux-x86_64 && ./zsxq-cli-linux-x86_64 --version
+curl -fsSL https://raw.githubusercontent.com/LunFengChen/zsxq-cli/master/install.sh | bash
 ```
+
+或手动下 [Releases](https://github.com/LunFengChen/zsxq-cli/releases) 的裸二进制
+（`zsxq-cli-linux-x86_64` / `zsxq-cli-macos-arm64` / `zsxq-cli-windows-x86_64.exe`）。
 
 或源码编译：
 
 ```bash
 cargo build --release
-./target/release/zsxq --version     # zsxq 0.1.0
+./target/release/zsxq --version     # zsxq 0.2.0
 ```
 
 ## 登录
