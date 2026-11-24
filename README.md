@@ -40,10 +40,17 @@ token + 设备指纹；登录新账号自动切为激活。
 ## 补全
 
 ```bash
-echo 'source <(COMPLETE=zsh zsxq)' >> ~/.zshrc   # bash 换 COMPLETE=bash，fish 换 COMPLETE=fish
+# fish（写入一次即可，新开终端自动生效）
+COMPLETE=fish zsxq > ~/.config/fish/completions/zsxq.fish
+
+# zsh
+echo 'source <(COMPLETE=zsh zsxq)' >> ~/.zshrc
+
+# bash
+echo 'source <(COMPLETE=bash zsxq)' >> ~/.bashrc
 ```
 
-启用后 `zsxq <TAB>` 出子命令、`zsxq use <TAB>` 补全账号名、`<TAB>` 出参数与中文说明。
+启用后 `zsxq <TAB>` 出子命令、`zsxq auth use <TAB>` 补全账号名、`<TAB>` 出参数与中文说明。
 
 cookie 获取：浏览器登录 `wx.zsxq.com` → F12 → Application → Cookies →
 复制 `zsxq_access_token` 的值，或整串 cookie 直接粘进来（会自动提取）。
