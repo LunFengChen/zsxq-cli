@@ -25,11 +25,17 @@ cargo build --release
 ## 登录
 
 ```bash
-zsxq auth login                     # 交互式：粘贴 cookie 整串或裸 token
-zsxq auth login "<cookie 或 token>" # 直接给参数
+zsxq auth login                     # 交互式：粘贴 cookie 整串或裸 token（存为 default 账号）
+zsxq auth login --name work         # 登录为名为 work 的账号
+zsxq auth list                      # 列出所有账号（* 为激活）
+zsxq auth use work                  # 切换激活账号
 zsxq auth status                    # 查看登录态
-zsxq auth logout                    # 删除本地 token
+zsxq auth logout [名字]              # 删除账号（默认删激活）
+zsxq -a work groups                 # 临时用 work 账号跑一条命令
 ```
+
+账号都存在 `~/.config/zsxq/accounts.json`（0600），每个账号有独立
+token + 设备指纹；登录新账号自动切为激活。
 
 cookie 获取：浏览器登录 `wx.zsxq.com` → F12 → Application → Cookies →
 复制 `zsxq_access_token` 的值，或整串 cookie 直接粘进来（会自动提取）。

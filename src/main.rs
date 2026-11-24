@@ -23,6 +23,9 @@ struct Cli {
     /// 原始 JSON 输出
     #[arg(long, global = true)]
     json: bool,
+    /// 指定账号（多 cookie 场景，默认用激活账号）
+    #[arg(short = 'a', long, global = true)]
+    account: Option<String>,
     #[command(subcommand)]
     cmd: Cmd,
 }
@@ -150,20 +153,27 @@ enum Cmd {
 
 #[derive(Subcommand)]
 enum AuthCmd {
-    /// 登录：粘贴整串 cookie 或裸 token，验证后存 ~/.config/zsxq/token
+    /// 登录：粘贴整串 cookie 或裸 token，验证后保存
     Login {
+        /// 账号名（默认 default），多 cookie 时用不同名字
+        #[arg(long)]
+        name: Option<String>,
         /// 可直接给 token/cookie；不给则提示粘贴
         token: Option<String>,
     },
+    /// 列出所有账号
+    List,
+    /// 切换激活账号
+    Use { name: String },
     /// 当前登录状态
     Status,
-    /// 退出登录（删除本地 token）
-    Logout,
+    /// 删除账号（默认删激活账号）
+    Logout { name: Option<String> },
 }
 
-fn api() -> Result<ZsxqClient> {
-    let token = auth::load_or_err()?;
-    ZsxqClient::new(&token, &auth::load_or_gen_aduid())
+fn api(account: Option<&str>) -> Result<ZsxqClient> {
+    let (_, acc) = auth::resolve(account)?;
+    ZsxqClient::new(&acc.token, &acc.aduid)
 }
 
 fn jv(v: &Value) -> String {
@@ -255,7 +265,7 @@ fn main() -> Result<()> {
         return auth_cmd(sub);
     }
 
-    let c = api()?;
+    let c = api(cli.account.as_deref())?;
     match cli.cmd {
         Cmd::Auth { .. } => unreachable!(),
         Cmd::Me => {
@@ -614,7 +624,7 @@ fn main() -> Result<()> {
 
 fn auth_cmd(sub: &AuthCmd) -> Result<()> {
     match sub {
-        AuthCmd::Login { token } => {
+        AuthCmd::Login { name, token } => {
             let input = match token {
                 Some(t) => t.clone(),
                 None => {
@@ -628,25 +638,55 @@ fn auth_cmd(sub: &AuthCmd) -> Result<()> {
             let tok = auth::extract_token(&input).ok_or_else(|| {
                 anyhow::anyhow!("解析失败：没在里面找到 zsxq_access_token，也没看到像 token 的值")
             })?;
-            // 验证
-            let c = ZsxqClient::new(&tok, &auth::load_or_gen_aduid())?;
+            let name = name.clone().unwrap_or_else(|| "default".into());
+            // 验证通过才落盘
+            let c = ZsxqClient::new(&tok, &uuid::Uuid::new_v4().to_string())?;
             let gs = c.groups().map_err(|e| {
                 anyhow::anyhow!(
                     "token 验证失败（{}）：cookie 过期或不是 zsxq_access_token",
                     e
                 )
             })?;
-            auth::save(&tok)?;
+            auth::login(&name, &tok)?;
             println!(
-                "已登录并保存到 {}（{} 个星球）",
-                auth::token_path().display(),
-                gs.len()
+                "已登录账号 '{}'（{} 个星球），存于 {}",
+                name,
+                gs.len(),
+                auth::store_display()
             );
         }
-        AuthCmd::Status => match auth::load() {
-            Some(tok) => {
-                println!("token 来源: {}", auth::token_path().display());
-                let c = ZsxqClient::new(&tok, &auth::load_or_gen_aduid())?;
+        AuthCmd::List => {
+            let (names, active) = auth::list();
+            if names.is_empty() {
+                println!("无账号：`zsxq auth login` 登录");
+            }
+            for n in names {
+                let mark = if Some(&n) == active.as_ref() {
+                    "*"
+                } else {
+                    " "
+                };
+                let acc = auth::account(&n).unwrap();
+                let tail: String = acc
+                    .token
+                    .chars()
+                    .rev()
+                    .take(6)
+                    .collect::<String>()
+                    .chars()
+                    .rev()
+                    .collect();
+                println!("{} {}\t...{}", mark, n, tail);
+            }
+        }
+        AuthCmd::Use { name } => {
+            auth::set_active(name)?;
+            println!("已切换到账号 '{}'", name);
+        }
+        AuthCmd::Status => match auth::active() {
+            Some((name, acc)) => {
+                println!("账号: {}  存储: {}", name, auth::store_display());
+                let c = ZsxqClient::new(&acc.token, &acc.aduid)?;
                 match c.groups() {
                     Ok(gs) => println!("有效 ✓  可访问 {} 个星球", gs.len()),
                     Err(e) => println!("已失效: {}", e),
@@ -654,9 +694,15 @@ fn auth_cmd(sub: &AuthCmd) -> Result<()> {
             }
             None => println!("未登录：`zsxq auth login`"),
         },
-        AuthCmd::Logout => {
-            auth::remove()?;
-            println!("已删除 {}", auth::token_path().display());
+        AuthCmd::Logout { name } => {
+            let name = match name {
+                Some(n) => n.clone(),
+                None => auth::active()
+                    .map(|(n, _)| n)
+                    .ok_or_else(|| anyhow::anyhow!("未登录"))?,
+            };
+            auth::remove(&name)?;
+            println!("已删除账号 '{}'", name);
         }
     }
     Ok(())

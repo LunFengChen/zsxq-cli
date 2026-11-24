@@ -1,36 +1,73 @@
-//! 认证：cookie/裸 token 解析 + 本地持久化（~/.config/zsxq/token，0600）。
+//! 认证：cookie/裸 token 解析 + 多账号持久化。
+//!
+//! 存储：~/.config/zsxq/accounts.json（0600）
+//!   {"active": "<name>", "accounts": {"<name>": {"token": "...", "aduid": "..."}}}
+//! 旧版单 token 文件（token/aduid）首次访问自动迁移为 default 账号。
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::path::PathBuf;
 
-pub fn token_path() -> PathBuf {
+fn dir() -> PathBuf {
     dirs::config_dir()
         .unwrap_or_else(|| PathBuf::from("."))
         .join("zsxq")
-        .join("token")
 }
 
-/// 设备指纹 id，签名头 X-Aduid 用（持久化，模拟同一台设备）。
-pub fn aduid_path() -> PathBuf {
-    token_path().with_file_name("aduid")
+fn store_path() -> PathBuf {
+    dir().join("accounts.json")
 }
 
-pub fn load() -> Option<String> {
-    fs::read_to_string(token_path())
-        .ok()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
+/// 存储文件路径（展示用）。
+pub fn store_display() -> String {
+    store_path().display().to_string()
 }
 
-pub fn load_or_err() -> Result<String> {
-    load().context("未登录：先 `zsxq auth login` 粘贴 cookie/token")
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Account {
+    pub token: String,
+    pub aduid: String,
 }
 
-pub fn save(token: &str) -> Result<()> {
-    let p = token_path();
+#[derive(Serialize, Deserialize, Default)]
+struct Store {
+    active: Option<String>,
+    accounts: HashMap<String, Account>,
+}
+
+fn load_store() -> Store {
+    if let Ok(s) = fs::read_to_string(store_path()) {
+        if let Ok(st) = serde_json::from_str(&s) {
+            return st;
+        }
+    }
+    // 迁移旧版单 token 文件
+    let legacy_token = dir().join("token");
+    if let Ok(t) = fs::read_to_string(&legacy_token) {
+        let t = t.trim().to_string();
+        if !t.is_empty() {
+            let aduid = fs::read_to_string(dir().join("aduid"))
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|_| uuid::Uuid::new_v4().to_string());
+            let mut st = Store::default();
+            st.accounts
+                .insert("default".into(), Account { token: t, aduid });
+            st.active = Some("default".into());
+            let _ = save_store(&st);
+            let _ = fs::remove_file(&legacy_token);
+            let _ = fs::remove_file(dir().join("aduid"));
+            return st;
+        }
+    }
+    Store::default()
+}
+
+fn save_store(st: &Store) -> Result<()> {
+    let p = store_path();
     fs::create_dir_all(p.parent().unwrap())?;
-    fs::write(&p, token)?;
+    fs::write(&p, serde_json::to_string_pretty(st)?)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -39,31 +76,77 @@ pub fn save(token: &str) -> Result<()> {
     Ok(())
 }
 
-pub fn remove() -> Result<()> {
-    let p = token_path();
-    if p.exists() {
-        fs::remove_file(p)?;
-    }
-    Ok(())
+/// 当前激活账号：(name, account)。
+pub fn active() -> Option<(String, Account)> {
+    let st = load_store();
+    st.active
+        .and_then(|n| st.accounts.get(&n).map(|a| (n, a.clone())))
 }
 
-pub fn load_or_gen_aduid() -> String {
-    if let Ok(s) = fs::read_to_string(aduid_path()) {
-        let s = s.trim().to_string();
-        if !s.is_empty() {
-            return s;
-        }
-    }
-    let id = uuid::Uuid::new_v4().to_string();
-    let _ = save_aduid(&id);
-    id
+/// 按名取账号。
+pub fn account(name: &str) -> Option<Account> {
+    load_store().accounts.get(name).cloned()
 }
 
-fn save_aduid(id: &str) -> Result<()> {
-    let p = aduid_path();
-    fs::create_dir_all(p.parent().unwrap())?;
-    fs::write(p, id)?;
-    Ok(())
+/// 登录态解析：--account 指定 > 激活账号。
+pub fn resolve(name: Option<&str>) -> Result<(String, Account)> {
+    if let Some(n) = name {
+        return account(n)
+            .map(|a| (n.to_string(), a))
+            .with_context(|| format!("账号 '{}' 不存在，`zsxq auth list` 查看", n));
+    }
+    active().context("未登录：`zsxq auth login` 粘贴 cookie/token")
+}
+
+/// 新登录/覆盖账号，设为激活。
+pub fn login(name: &str, token: &str) -> Result<()> {
+    let mut st = load_store();
+    let aduid = st
+        .accounts
+        .get(name)
+        .map(|a| a.aduid.clone())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+    st.accounts.insert(
+        name.to_string(),
+        Account {
+            token: token.to_string(),
+            aduid,
+        },
+    );
+    st.active = Some(name.to_string());
+    save_store(&st)
+}
+
+/// (名字列表, 激活名)
+pub fn list() -> (Vec<String>, Option<String>) {
+    let st = load_store();
+    let mut names: Vec<String> = st.accounts.keys().cloned().collect();
+    names.sort();
+    (names, st.active)
+}
+
+/// 切换激活账号。
+pub fn set_active(name: &str) -> Result<()> {
+    let mut st = load_store();
+    if !st.accounts.contains_key(name) {
+        bail!("账号 '{}' 不存在，`zsxq auth list` 查看", name);
+    }
+    st.active = Some(name.to_string());
+    save_store(&st)
+}
+
+/// 删除账号；删的是激活号则自动切到剩余第一个。
+pub fn remove(name: &str) -> Result<()> {
+    let mut st = load_store();
+    if st.accounts.remove(name).is_none() {
+        bail!("账号 '{}' 不存在", name);
+    }
+    if st.active.as_deref() == Some(name) {
+        let mut rest: Vec<String> = st.accounts.keys().cloned().collect();
+        rest.sort();
+        st.active = rest.first().cloned();
+    }
+    save_store(&st)
 }
 
 /// 输入可以是：整串 cookie（自动提取 zsxq_access_token）、
