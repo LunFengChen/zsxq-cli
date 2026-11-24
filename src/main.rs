@@ -11,13 +11,22 @@ use std::path::PathBuf;
 use client::ZsxqClient;
 use fmt::{rich_to_md, rich_to_plain};
 
+const HELP_TPL: &str = "{about-with-newline}\n用法: {usage}\n\n{all-args}";
+
 #[derive(Parser)]
 #[command(
     name = "zsxq",
     version,
-    about = "知识星球 web 端逆向 CLI",
-    long_about = "权限等同网页浏览：不需要星球开 Skill，长文章可拉全文。\n\
-                  认证：zsxq auth login（粘贴 cookie 或 zsxq_access_token）"
+    about = "知识星球命令行客户端",
+    long_about = "知识星球命令行客户端（web 端 API + 签名/浏览器头过风控）。\n\
+                  权限等同网页浏览：不需要星球开 Skill，长文章可拉全文。\n\
+                  首次使用：zsxq auth login 粘贴 cookie 或 zsxq_access_token。",
+    help_template = HELP_TPL,
+    disable_help_subcommand = true,
+    disable_help_flag = true,
+    disable_version_flag = true,
+    next_help_heading = "选项",
+    subcommand_help_heading = "子命令"
 )]
 struct Cli {
     /// 原始 JSON 输出
@@ -26,149 +35,351 @@ struct Cli {
     /// 指定账号（多 cookie 场景，默认用激活账号）
     #[arg(short = 'a', long, global = true)]
     account: Option<String>,
+    /// 显示帮助
+    #[arg(short = 'h', long = "help", action = clap::ArgAction::Help)]
+    _help: Option<bool>,
+    /// 显示版本
+    #[arg(short = 'V', long = "version", action = clap::ArgAction::Version)]
+    _version: Option<bool>,
     #[command(subcommand)]
     cmd: Cmd,
+}
+
+/// 复用的 -h/--help 中文字段（clap 自动 help flag 是英文，禁掉换这个）。
+#[derive(clap::Args)]
+struct HelpFlag {
+    /// 显示帮助
+    #[arg(short = 'h', long = "help", action = clap::ArgAction::Help, help_heading = "选项")]
+    _h: Option<bool>,
 }
 
 #[derive(Subcommand)]
 enum Cmd {
     /// 登录态管理
+    #[command(help_template = HELP_TPL, subcommand_help_heading = "子命令",
+              disable_help_flag = true, next_help_heading = "选项")]
     Auth {
         #[command(subcommand)]
         sub: AuthCmd,
+        #[command(flatten)]
+        _help: HelpFlag,
     },
     /// 列出加入的星球
-    Groups,
+    #[command(help_template = HELP_TPL, disable_help_flag = true)]
+    Groups {
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
     /// 当前用户资料
-    Me,
+    #[command(help_template = HELP_TPL, disable_help_flag = true)]
+    Me {
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
     /// 我的收藏
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
     Favorites {
+        /// 返回条数
         #[arg(short = 'n', long, default_value_t = 20)]
         count: u32,
+        #[command(flatten)]
+        _help: HelpFlag,
     },
     /// 星球详情（简介/星主/编号/统计）
-    GroupInfo { gid: String },
-    /// 星球成员名单
-    Members {
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    GroupInfo {
+        /// 星球 ID
         gid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
+    /// 星球成员名单
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Members {
+        /// 星球 ID
+        gid: String,
+        /// 返回条数
         #[arg(short = 'n', long, default_value_t = 50)]
         count: u32,
+        #[command(flatten)]
+        _help: HelpFlag,
     },
     /// 枚举星球主题
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
     Topics {
+        /// 星球 ID
         gid: String,
-        /// all|digests|latest|by_owner|questions|tasks
+        /// 范围：all|digests|latest|by_owner|questions|tasks
         #[arg(short, long, default_value = "all")]
         scope: String,
         /// 页数（每页20条）
         #[arg(short = 'n', long, default_value_t = 2)]
         pages: u32,
+        #[command(flatten)]
+        _help: HelpFlag,
     },
     /// 主题详情（长文章自动拉全文 markdown）
-    Topic { tid: String },
-    /// 主题评论（含点赞数与回复）
-    Comments {
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Topic {
+        /// 主题 ID
         tid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
+    /// 主题评论（含点赞数与回复）
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Comments {
+        /// 主题 ID
+        tid: String,
+        /// 返回条数
         #[arg(short = 'n', long, default_value_t = 20)]
         count: u32,
+        #[command(flatten)]
+        _help: HelpFlag,
     },
     /// 主题点赞名单
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
     Likes {
+        /// 主题 ID
         tid: String,
+        /// 返回条数
         #[arg(short = 'n', long, default_value_t = 50)]
         count: u32,
+        #[command(flatten)]
+        _help: HelpFlag,
     },
     /// 主题赞赏名单
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
     Rewards {
+        /// 主题 ID
         tid: String,
+        /// 返回条数
         #[arg(short = 'n', long, default_value_t = 50)]
         count: u32,
+        #[command(flatten)]
+        _help: HelpFlag,
     },
     /// 搜索主题（默认全局，--gid 星球内）
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
     Search {
+        /// 关键词
         keyword: String,
-        #[arg(long, default_value = "")]
+        /// 限定星球内搜索
+        #[arg(long, default_value = "", hide_default_value = true)]
         gid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
     },
-    /// 星球精华（/topics/digests 端点已被风控，走 topics?scope=digests）
+    /// 星球精华
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
     Digests {
+        /// 星球 ID
         gid: String,
         /// 关键词客户端过滤
-        #[arg(long, default_value = "")]
+        #[arg(long, default_value = "", hide_default_value = true)]
         kw: String,
         /// 页数（每页20条）
         #[arg(short = 'n', long, default_value_t = 2)]
         pages: u32,
+        #[command(flatten)]
+        _help: HelpFlag,
     },
     /// 星球专栏（星主分类）
-    Columns { gid: String },
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Columns {
+        /// 星球 ID
+        gid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
     /// 专栏下主题
-    ColumnTopics { gid: String, cid: String },
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    ColumnTopics {
+        /// 星球 ID
+        gid: String,
+        /// 专栏 ID
+        cid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
     /// 星球标签
-    Hashtags { gid: String },
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Hashtags {
+        /// 星球 ID
+        gid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
     /// 标签下主题
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
     TagTopics {
+        /// 标签 ID
         hid: String,
+        /// 页数（每页20条）
         #[arg(short = 'n', long, default_value_t = 1)]
         pages: u32,
+        #[command(flatten)]
+        _help: HelpFlag,
     },
     /// 星球置顶
-    Sticky { gid: String },
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Sticky {
+        /// 星球 ID
+        gid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
     /// 星球文件列表
-    Files { gid: String },
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Files {
+        /// 星球 ID
+        gid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
     /// 下载附件
-    Download { fid: String, dest: Option<String> },
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Download {
+        /// 文件 ID
+        fid: String,
+        /// 保存路径（默认同名文件）
+        dest: Option<String>,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
     /// 赞主题
-    Like { tid: String },
-    /// 取消赞主题
-    Unlike { tid: String },
-    /// 赞评论
-    LikeComment { cid: String },
-    /// 取消赞评论
-    UnlikeComment { cid: String },
-    /// 发评论（--reply 回复某条评论）
-    Comment {
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Like {
+        /// 主题 ID
         tid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
+    /// 取消赞主题
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Unlike {
+        /// 主题 ID
+        tid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
+    /// 赞评论
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    LikeComment {
+        /// 评论 ID
+        cid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
+    /// 取消赞评论
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    UnlikeComment {
+        /// 评论 ID
+        cid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
+    /// 发评论（--reply 回复某条评论）
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Comment {
+        /// 主题 ID
+        tid: String,
+        /// 评论内容
         text: String,
-        /// 被回复的评论 id（楼中楼）
+        /// 被回复的评论 ID（楼中楼）
         #[arg(long)]
         reply: Option<String>,
+        #[command(flatten)]
+        _help: HelpFlag,
     },
     /// 删除自己的评论
-    Uncomment { cid: String },
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Uncomment {
+        /// 评论 ID
+        cid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
     /// 收藏主题
-    Favorite { tid: String },
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Favorite {
+        /// 主题 ID
+        tid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
     /// 取消收藏
-    Unfavorite { tid: String },
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Unfavorite {
+        /// 主题 ID
+        tid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
     /// 发帖（talk 纯文本，可选 --title）
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
     Post {
+        /// 星球 ID
         gid: String,
+        /// 正文
         text: String,
+        /// 标题（可选）
         #[arg(long)]
         title: Option<String>,
+        #[command(flatten)]
+        _help: HelpFlag,
     },
     /// 删除自己的主题
-    Unpost { tid: String },
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Unpost {
+        /// 主题 ID
+        tid: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
 }
 
 #[derive(Subcommand)]
 enum AuthCmd {
     /// 登录：粘贴整串 cookie 或裸 token，验证后保存
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
     Login {
         /// 账号名（默认 default），多 cookie 时用不同名字
         #[arg(long)]
         name: Option<String>,
         /// 可直接给 token/cookie；不给则提示粘贴
         token: Option<String>,
+        #[command(flatten)]
+        _help: HelpFlag,
     },
     /// 列出所有账号
-    List,
+    #[command(help_template = HELP_TPL, disable_help_flag = true)]
+    List {
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
     /// 切换激活账号
-    Use { name: String },
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Use {
+        /// 账号名
+        name: String,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
     /// 当前登录状态
-    Status,
+    #[command(help_template = HELP_TPL, disable_help_flag = true)]
+    Status {
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
     /// 删除账号（默认删激活账号）
-    Logout { name: Option<String> },
+    #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
+    Logout {
+        /// 账号名（默认删激活账号）
+        name: Option<String>,
+        #[command(flatten)]
+        _help: HelpFlag,
+    },
 }
 
 fn api(account: Option<&str>) -> Result<ZsxqClient> {
@@ -261,14 +472,14 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    if let Cmd::Auth { sub } = &cli.cmd {
+    if let Cmd::Auth { sub, .. } = &cli.cmd {
         return auth_cmd(sub);
     }
 
     let c = api(cli.account.as_deref())?;
     match cli.cmd {
         Cmd::Auth { .. } => unreachable!(),
-        Cmd::Me => {
+        Cmd::Me { .. } => {
             let u = c.me()?;
             if cli.json {
                 println!("{}", jv(&u));
@@ -281,7 +492,7 @@ fn main() -> Result<()> {
                 );
             }
         }
-        Cmd::Favorites { count } => {
+        Cmd::Favorites { count, .. } => {
             let fs = c.favorites(count)?;
             out_list(&fs, cli.json, |f| {
                 let t = f.get("topic").cloned().unwrap_or(json!({}));
@@ -302,7 +513,7 @@ fn main() -> Result<()> {
                 )
             });
         }
-        Cmd::GroupInfo { gid } => {
+        Cmd::GroupInfo { gid, .. } => {
             let g = c.group_info(&gid)?;
             let st = c.group_stats(&gid).unwrap_or(json!({}));
             if cli.json {
@@ -340,7 +551,7 @@ fn main() -> Result<()> {
                 );
             }
         }
-        Cmd::Members { gid, count } => {
+        Cmd::Members { gid, count, .. } => {
             let ms = c.members(&gid, count)?;
             out_list(&ms, cli.json, |m| {
                 format!(
@@ -351,7 +562,7 @@ fn main() -> Result<()> {
                 )
             });
         }
-        Cmd::Groups => {
+        Cmd::Groups { .. } => {
             let gs = c.groups()?;
             out_list(&gs, cli.json, |g| {
                 let members = g
@@ -368,7 +579,9 @@ fn main() -> Result<()> {
                 )
             });
         }
-        Cmd::Topics { gid, scope, pages } => {
+        Cmd::Topics {
+            gid, scope, pages, ..
+        } => {
             let mut end: Option<String> = None;
             let mut all: Vec<Value> = Vec::new();
             for _ in 0..pages {
@@ -385,7 +598,7 @@ fn main() -> Result<()> {
             }
             out_list(&all, cli.json, brief);
         }
-        Cmd::Topic { tid } => {
+        Cmd::Topic { tid, .. } => {
             let t = c.topic(&tid)?;
             if t.is_null() {
                 anyhow::bail!("主题不存在或无权限");
@@ -432,7 +645,7 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Cmd::Comments { tid, count } => {
+        Cmd::Comments { tid, count, .. } => {
             let cms = c.comments(&tid, count)?;
             if cli.json {
                 println!("{}", jv(&json!(cms)));
@@ -448,7 +661,7 @@ fn main() -> Result<()> {
                 }
             }
         }
-        Cmd::Likes { tid, count } => {
+        Cmd::Likes { tid, count, .. } => {
             let ls = c.likes(&tid, count)?;
             out_list(&ls, cli.json, |l| {
                 format!(
@@ -465,7 +678,7 @@ fn main() -> Result<()> {
                 )
             });
         }
-        Cmd::Rewards { tid, count } => {
+        Cmd::Rewards { tid, count, .. } => {
             let rs = c.rewards(&tid, count)?;
             out_list(&rs, cli.json, |r| {
                 format!(
@@ -483,7 +696,7 @@ fn main() -> Result<()> {
                 )
             });
         }
-        Cmd::Search { keyword, gid } => {
+        Cmd::Search { keyword, gid, .. } => {
             let items = c.search(&keyword, if gid.is_empty() { None } else { Some(&gid) })?;
             let topics: Vec<Value> = items
                 .iter()
@@ -491,7 +704,7 @@ fn main() -> Result<()> {
                 .collect();
             out_list(&topics, cli.json, brief);
         }
-        Cmd::Digests { gid, kw, pages } => {
+        Cmd::Digests { gid, kw, pages, .. } => {
             let mut end: Option<String> = None;
             let mut all: Vec<Value> = Vec::new();
             for _ in 0..pages {
@@ -511,7 +724,7 @@ fn main() -> Result<()> {
             }
             out_list(&all, cli.json, brief);
         }
-        Cmd::Columns { gid } => {
+        Cmd::Columns { gid, .. } => {
             let cols = c.columns(&gid)?;
             out_list(&cols, cli.json, |c| {
                 format!(
@@ -525,10 +738,10 @@ fn main() -> Result<()> {
                 )
             });
         }
-        Cmd::ColumnTopics { gid, cid } => {
+        Cmd::ColumnTopics { gid, cid, .. } => {
             out_list(&c.column_topics(&gid, &cid)?, cli.json, brief);
         }
-        Cmd::Hashtags { gid } => {
+        Cmd::Hashtags { gid, .. } => {
             let hs = c.hashtags(&gid)?;
             out_list(&hs, cli.json, |h| {
                 format!(
@@ -539,7 +752,7 @@ fn main() -> Result<()> {
                 )
             });
         }
-        Cmd::TagTopics { hid, pages } => {
+        Cmd::TagTopics { hid, pages, .. } => {
             let mut end: Option<String> = None;
             let mut all: Vec<Value> = Vec::new();
             for _ in 0..pages {
@@ -556,8 +769,8 @@ fn main() -> Result<()> {
             }
             out_list(&all, cli.json, brief);
         }
-        Cmd::Sticky { gid } => out_list(&c.sticky(&gid)?, cli.json, brief),
-        Cmd::Files { gid } => {
+        Cmd::Sticky { gid, .. } => out_list(&c.sticky(&gid)?, cli.json, brief),
+        Cmd::Files { gid, .. } => {
             let fs: Vec<Value> = c
                 .group_files(&gid, 20)?
                 .iter()
@@ -571,50 +784,54 @@ fn main() -> Result<()> {
                 )
             });
         }
-        Cmd::Download { fid, dest } => {
+        Cmd::Download { fid, dest, .. } => {
             let dest = PathBuf::from(dest.unwrap_or_else(|| fid.clone()));
             let n = c.download(&fid, &dest)?;
             println!("{} ({}B)", dest.display(), n);
         }
-        Cmd::Like { tid } => {
+        Cmd::Like { tid, .. } => {
             c.like_topic(&tid)?;
             println!("已赞 {}", tid);
         }
-        Cmd::Unlike { tid } => {
+        Cmd::Unlike { tid, .. } => {
             c.unlike_topic(&tid)?;
             println!("已取消赞 {}", tid);
         }
-        Cmd::LikeComment { cid } => {
+        Cmd::LikeComment { cid, .. } => {
             c.like_comment(&cid)?;
             println!("已赞评论 {}", cid);
         }
-        Cmd::UnlikeComment { cid } => {
+        Cmd::UnlikeComment { cid, .. } => {
             c.unlike_comment(&cid)?;
             println!("已取消赞评论 {}", cid);
         }
-        Cmd::Comment { tid, text, reply } => {
+        Cmd::Comment {
+            tid, text, reply, ..
+        } => {
             let cm = c.add_comment(&tid, &text, reply.as_deref())?;
             let cid = cm.get("comment_id").and_then(|v| v.as_i64()).unwrap_or(0);
             println!("已评论 comment_id={}", cid);
         }
-        Cmd::Uncomment { cid } => {
+        Cmd::Uncomment { cid, .. } => {
             c.del_comment(&cid)?;
             println!("已删除评论 {}", cid);
         }
-        Cmd::Favorite { tid } => {
+        Cmd::Favorite { tid, .. } => {
             c.favorite(&tid)?;
             println!("已收藏 {}", tid);
         }
-        Cmd::Unfavorite { tid } => {
+        Cmd::Unfavorite { tid, .. } => {
             c.unfavorite(&tid)?;
             println!("已取消收藏 {}", tid);
         }
-        Cmd::Post { gid, text, title } => {
+        Cmd::Post {
+            gid, text, title, ..
+        } => {
             let t = c.post_topic(&gid, &text, title.as_deref())?;
             let tid = t.get("topic_id").and_then(|v| v.as_i64()).unwrap_or(0);
             println!("已发布 topic_id={}", tid);
         }
-        Cmd::Unpost { tid } => {
+        Cmd::Unpost { tid, .. } => {
             c.del_topic(&tid)?;
             println!("已删除主题 {}", tid);
         }
@@ -624,7 +841,7 @@ fn main() -> Result<()> {
 
 fn auth_cmd(sub: &AuthCmd) -> Result<()> {
     match sub {
-        AuthCmd::Login { name, token } => {
+        AuthCmd::Login { name, token, .. } => {
             let input = match token {
                 Some(t) => t.clone(),
                 None => {
@@ -655,7 +872,7 @@ fn auth_cmd(sub: &AuthCmd) -> Result<()> {
                 auth::store_display()
             );
         }
-        AuthCmd::List => {
+        AuthCmd::List { .. } => {
             let (names, active) = auth::list();
             if names.is_empty() {
                 println!("无账号：`zsxq auth login` 登录");
@@ -679,11 +896,11 @@ fn auth_cmd(sub: &AuthCmd) -> Result<()> {
                 println!("{} {}\t...{}", mark, n, tail);
             }
         }
-        AuthCmd::Use { name } => {
+        AuthCmd::Use { name, .. } => {
             auth::set_active(name)?;
             println!("已切换到账号 '{}'", name);
         }
-        AuthCmd::Status => match auth::active() {
+        AuthCmd::Status { .. } => match auth::active() {
             Some((name, acc)) => {
                 println!("账号: {}  存储: {}", name, auth::store_display());
                 let c = ZsxqClient::new(&acc.token, &acc.aduid)?;
@@ -694,7 +911,7 @@ fn auth_cmd(sub: &AuthCmd) -> Result<()> {
             }
             None => println!("未登录：`zsxq auth login`"),
         },
-        AuthCmd::Logout { name } => {
+        AuthCmd::Logout { name, .. } => {
             let name = match name {
                 Some(n) => n.clone(),
                 None => auth::active()
