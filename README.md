@@ -37,6 +37,14 @@ zsxq -a work groups                 # 临时用 work 账号跑一条命令
 账号都存在 `~/.config/zsxq/accounts.json`（0600），每个账号有独立
 token + 设备指纹；登录新账号自动切为激活。
 
+## 补全
+
+```bash
+echo 'source <(COMPLETE=zsh zsxq)' >> ~/.zshrc   # bash 换 COMPLETE=bash，fish 换 COMPLETE=fish
+```
+
+启用后 `zsxq <TAB>` 出子命令、`zsxq use <TAB>` 补全账号名、`<TAB>` 出参数与中文说明。
+
 cookie 获取：浏览器登录 `wx.zsxq.com` → F12 → Application → Cookies →
 复制 `zsxq_access_token` 的值，或整串 cookie 直接粘进来（会自动提取）。
 

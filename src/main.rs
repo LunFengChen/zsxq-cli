@@ -3,13 +3,23 @@ mod client;
 mod fmt;
 
 use anyhow::Result;
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::engine::{ArgValueCandidates, CompletionCandidate};
 use serde_json::{json, Value};
 use std::io::Write;
 use std::path::PathBuf;
 
 use client::ZsxqClient;
 use fmt::{rich_to_md, rich_to_plain};
+
+/// tab 补全：当前已登录的账号名
+fn account_candidates() -> Vec<CompletionCandidate> {
+    auth::list()
+        .0
+        .into_iter()
+        .map(CompletionCandidate::new)
+        .collect()
+}
 
 const HELP_TPL: &str = "{about-with-newline}\n用法: {usage}\n\n{all-args}";
 
@@ -33,7 +43,12 @@ struct Cli {
     #[arg(long, global = true)]
     json: bool,
     /// 指定账号（多 cookie 场景，默认用激活账号）
-    #[arg(short = 'a', long, global = true)]
+    #[arg(
+        short = 'a',
+        long,
+        global = true,
+        add = ArgValueCandidates::new(account_candidates)
+    )]
     account: Option<String>,
     /// 显示帮助
     #[arg(short = 'h', long = "help", action = clap::ArgAction::Help)]
@@ -362,6 +377,7 @@ enum AuthCmd {
     #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
     Use {
         /// 账号名
+        #[arg(add = ArgValueCandidates::new(account_candidates))]
         name: String,
         #[command(flatten)]
         _help: HelpFlag,
@@ -376,6 +392,7 @@ enum AuthCmd {
     #[command(help_template = HELP_TPL, disable_help_flag = true, next_help_heading = "参数")]
     Logout {
         /// 账号名（默认删激活账号）
+        #[arg(add = ArgValueCandidates::new(account_candidates))]
         name: Option<String>,
         #[command(flatten)]
         _help: HelpFlag,
@@ -464,6 +481,9 @@ fn out_list(items: &[Value], json: bool, f: impl Fn(&Value) -> String) {
 }
 
 fn main() -> Result<()> {
+    // COMPLETE=zsh zsxq 输出补全脚本；shell 回调时直接出候选后退出
+    clap_complete::CompleteEnv::with_factory(Cli::command).complete();
+
     // Unix: 下游管道关闭时（`| head`）走默认 SIGPIPE 退出，而不是 println! panic
     #[cfg(unix)]
     unsafe {
